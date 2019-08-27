@@ -9,6 +9,8 @@ Currently shows:
 `dabar` favors convention over configuration, which is why there's no way to
 configure it.
 
+Licensed MIT.
+
 ## To Do
 
 features:

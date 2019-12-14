@@ -1,3 +1,4 @@
+#include <dirent.h>
 #include <fcntl.h>
 #include <poll.h>
 #include <signal.h>
@@ -9,6 +10,7 @@
 #include <time.h>
 #include <unistd.h>
 
+static char *empty = "";
 static volatile int running = 1;
 static int mem_fd = 0;
 
@@ -105,12 +107,106 @@ char * get_time(void)
         return res;
 }
 
+char * dumb_read(const char *fname)
+{
+        int fd = open(fname, O_RDONLY);
+
+        if (fd < 0)
+        {
+                return NULL;
+        }
+
+        char *content = malloc(3);
+        ssize_t res = read(fd, content, 3);
+
+        if (res <= 0)
+        {
+                free(content);
+                return empty;
+        }
+
+        size_t i = 2;
+        while (i > 0 && content[i] == '\n')
+        {
+                content[i] = 0;
+        }
+
+        return content;
+}
+
+char * get_battery(void)
+{
+        char **batteries = calloc(2, sizeof(char *));
+        DIR *power_sup = opendir("/sys/class/power_supply");
+
+        if (!power_sup)
+        {
+                return empty;
+        }
+
+        struct dirent *dir;
+        size_t i = 0;
+
+        while((dir = readdir(power_sup)) != NULL)
+        {
+                if (strncmp("BAT", dir->d_name, 3) == 0)
+                {
+                        batteries[i] = strdup(dir->d_name);
+                        i++;
+                }
+        }
+
+        closedir(power_sup);
+
+        char *res = (char *) calloc(128, sizeof(char));
+        memset(res, 0, 128);
+
+        size_t j = 0;
+        size_t offset = 0;
+        while (j < i)
+        {
+                char tmp[128];
+                char fname[1024];
+                int added_len;
+
+                memset(tmp, 0, 128);
+                sprintf(fname, "/sys/class/power_supply/%s/capacity",
+                                batteries[j]);
+                char *cap = dumb_read(fname);
+                if (!cap)
+                {
+                        j++;
+                        continue;
+                }
+
+                if (j == i - 1)
+                {
+                        added_len = snprintf(tmp, 128, "%s: %s%%",
+                                        batteries[j], cap);
+                }
+                else
+                {
+                        added_len = snprintf(tmp, 128, "%s: %s%% | ",
+                                        batteries[j], cap);
+                }
+
+                strncpy((char *) (res + offset), tmp, 128 - offset);
+                offset += added_len;
+                free(cap);
+                cap = NULL;
+                j++;
+        }
+
+        return res;
+}
+
 int main(void)
 {
         signal(SIGINT, nicely_exit);
         struct pollfd in;
         char *mem_res;
         char *time_res;
+        char *bat_res;
 
         in.fd = STDIN_FILENO;
         in.events = POLLIN;
@@ -123,10 +219,12 @@ int main(void)
         {
                 mem_res = get_mem();
                 time_res = get_time();
+                bat_res = get_battery();
 
                 printf(",[");
                 printf("{\"name\":\"mem\",\"full_text\":\"%s\"}", mem_res);
                 printf(",{\"name\":\"time\",\"full_text\":\"%s\"}", time_res);
+                printf(",{\"name\":\"bat\",\"full_text\":\"%s\"}", bat_res);
                 printf("]\n");
                 fflush(stdout);
 
@@ -134,6 +232,8 @@ int main(void)
                 mem_res = NULL;
                 free(time_res);
                 time_res = NULL;
+                free(bat_res);
+                bat_res = NULL;
 
                 int err = poll(&in, 1, 5000);
                 if (err == -1)

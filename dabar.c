@@ -197,6 +197,18 @@ char * get_battery(void)
                 j++;
         }
 
+        for (size_t i = 0; i < 2; i++)
+        {
+                if (batteries[i])
+                {
+                        free(batteries[i]);
+                        batteries[i] = NULL;
+                }
+        }
+
+        free(batteries);
+        batteries = NULL;
+
         return res;
 }
 

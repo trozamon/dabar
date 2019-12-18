@@ -222,9 +222,12 @@ int main(void)
                 bat_res = get_battery();
 
                 printf(",[");
+                if (bat_res && strlen(bat_res) > 0)
+                {
+                        printf("{\"name\":\"bat\",\"full_text\":\"%s\"},", bat_res);
+                }
                 printf("{\"name\":\"mem\",\"full_text\":\"%s\"}", mem_res);
                 printf(",{\"name\":\"time\",\"full_text\":\"%s\"}", time_res);
-                printf(",{\"name\":\"bat\",\"full_text\":\"%s\"}", bat_res);
                 printf("]\n");
                 fflush(stdout);
 

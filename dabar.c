@@ -122,7 +122,7 @@ char * dumb_read(const char *fname)
         if (res <= 0)
         {
                 free(content);
-                return empty;
+                return strdup(empty);
         }
 
         size_t i = 2;
@@ -141,11 +141,14 @@ char * get_battery(void)
 
         if (!power_sup)
         {
-                return empty;
+                return strdup(empty);
         }
 
         struct dirent *dir;
         size_t i = 0;
+
+        batteries[0] = 0;
+        batteries[1] = 0;
 
         while((dir = readdir(power_sup)) != NULL)
         {

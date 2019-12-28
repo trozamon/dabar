@@ -109,6 +109,7 @@ char * get_time(void)
 
 char * dumb_read(const char *fname)
 {
+        size_t LEN = 4;
         int fd = open(fname, O_RDONLY);
 
         if (fd < 0)
@@ -116,8 +117,8 @@ char * dumb_read(const char *fname)
                 return NULL;
         }
 
-        char *content = malloc(3);
-        ssize_t res = read(fd, content, 3);
+        char *content = calloc(LEN, sizeof(char));
+        ssize_t res = read(fd, content, LEN);
 
         if (res <= 0)
         {
@@ -125,10 +126,11 @@ char * dumb_read(const char *fname)
                 return strdup(empty);
         }
 
-        size_t i = 2;
-        while (i > 0 && content[i] == '\n')
+        size_t i = LEN - 1;
+        while (i > 0 && (content[i] < '0' || content[i] > '9'))
         {
                 content[i] = 0;
+                i--;
         }
 
         return content;
@@ -240,6 +242,10 @@ int main(void)
                 if (bat_res && strlen(bat_res) > 0)
                 {
                         printf("{\"name\":\"bat\",\"full_text\":\"%s\"},", bat_res);
+                }
+                else
+                {
+                        printf("{\"name\":\"bat\",\"full_text\":\"unknown\"},");
                 }
                 printf("{\"name\":\"mem\",\"full_text\":\"%s\"}", mem_res);
                 printf(",{\"name\":\"time\",\"full_text\":\"%s\"}", time_res);

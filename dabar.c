@@ -119,6 +119,7 @@ char * dumb_read(const char *fname)
 
         char *content = calloc(LEN, sizeof(char));
         ssize_t res = read(fd, content, LEN);
+        close(fd);
 
         if (res <= 0)
         {

@@ -139,7 +139,6 @@ char * dumb_read(const char *fname)
 
 char * get_battery(void)
 {
-        char **batteries = calloc(2, sizeof(char *));
         DIR *power_sup = opendir("/sys/class/power_supply");
 
         if (!power_sup)
@@ -147,6 +146,7 @@ char * get_battery(void)
                 return strdup(empty);
         }
 
+        char **batteries = calloc(2, sizeof(char *));
         struct dirent *dir;
         size_t i = 0;
 

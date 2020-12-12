@@ -3,6 +3,7 @@
 Da bar for i3.
 Currently shows:
 
+* Battery level
 * RAM in use vs. totally available
 * Time
 

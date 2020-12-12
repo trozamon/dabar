@@ -6,3 +6,4 @@ project(dabar
 add_compile_options(-Wall -Wextra)
 
 add_executable(dabar dabar.c)
+target_link_libraries(dabar X11 Xi)

@@ -9,8 +9,12 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/XInput2.h>
 
-static char *empty = "";
+#include "dabar-common.h"
+
+static char* empty = "";
 static volatile int running = 1;
 static int mem_fd = 0;
 
@@ -22,9 +26,9 @@ void nicely_exit(int sig)
         }
 }
 
-char * get_mem(void)
+char* get_mem(void)
 {
-        char *res = 0;
+        char* res = 0;
         char buf[1024];
         ssize_t err;
 
@@ -53,7 +57,7 @@ char * get_mem(void)
 
                 while (i < sizeof(buf) && lines < 3)
                 {
-                        char *tmp;
+                        char* tmp;
 
                         if (buf[i] > '0' && buf[i] <= '9')
                         {
@@ -86,14 +90,14 @@ char * get_mem(void)
         return res;
 }
 
-char * get_time(void)
+char* get_time(void)
 {
-        char *res = calloc(128, sizeof(char));
+        char* res = calloc(128, sizeof(char));
         time_t t;
         struct tm timeval;
 
         t = time(NULL);
-        struct tm *err = localtime_r(&t, &timeval);
+        struct tm* err = localtime_r(&t, &timeval);
 
         if (NULL == err)
         {
@@ -107,7 +111,7 @@ char * get_time(void)
         return res;
 }
 
-char * dumb_read(const char *fname)
+char* dumb_read(const char* fname)
 {
         size_t LEN = 4;
         int fd = open(fname, O_RDONLY);
@@ -117,7 +121,7 @@ char * dumb_read(const char *fname)
                 return NULL;
         }
 
-        char *content = calloc(LEN, sizeof(char));
+        char* content = calloc(LEN, sizeof(char));
         ssize_t res = read(fd, content, LEN);
         close(fd);
 
@@ -137,18 +141,18 @@ char * dumb_read(const char *fname)
         return content;
 }
 
-char * get_battery(void)
+char* get_battery(void)
 {
-        DIR *power_sup = opendir("/sys/class/power_supply");
+        char** batteries = calloc(2, sizeof(char*));
+        DIR* power_sup = opendir("/sys/class/power_supply");
+        struct dirent* dir;
+        size_t i = 0;
 
         if (!power_sup)
         {
+                free(batteries);
                 return strdup(empty);
         }
-
-        char **batteries = calloc(2, sizeof(char *));
-        struct dirent *dir;
-        size_t i = 0;
 
         batteries[0] = 0;
         batteries[1] = 0;
@@ -164,7 +168,7 @@ char * get_battery(void)
 
         closedir(power_sup);
 
-        char *res = (char *) calloc(128, sizeof(char));
+        char* res = (char*) calloc(128, sizeof(char));
         memset(res, 0, 128);
 
         size_t j = 0;
@@ -178,7 +182,7 @@ char * get_battery(void)
                 memset(tmp, 0, 128);
                 sprintf(fname, "/sys/class/power_supply/%s/capacity",
                                 batteries[j]);
-                char *cap = dumb_read(fname);
+                char* cap = dumb_read(fname);
                 if (!cap)
                 {
                         j++;
@@ -196,7 +200,7 @@ char * get_battery(void)
                                         batteries[j], cap);
                 }
 
-                strncpy((char *) (res + offset), tmp, 128 - offset);
+                strncpy((char*) (res + offset), tmp, 128 - offset);
                 offset += added_len;
                 free(cap);
                 cap = NULL;
@@ -218,13 +222,34 @@ char * get_battery(void)
         return res;
 }
 
+char* fmt_lock_countdown_str(int counter)
+{
+        char* res = NULL;
+        int minutes;
+        int seconds;
+
+        minutes = counter / 60;
+        seconds = counter % 60;
+
+        res = calloc(6, sizeof(char));
+        snprintf(res, 6, "%02d:%02d", minutes, seconds);
+
+        return res;
+}
+
+// TODO: add ip addr
+
 int main(void)
 {
-        signal(SIGINT, nicely_exit);
         struct pollfd in;
-        char *mem_res;
-        char *time_res;
-        char *bat_res;
+        char* mem_res;
+        char* time_res;
+        char* bat_res;
+        char* lock_res;
+        int err = 0;
+
+        signal(SIGINT, nicely_exit);
+        dabar_common_x_init();
 
         in.fd = STDIN_FILENO;
         in.events = POLLIN;
@@ -238,15 +263,18 @@ int main(void)
                 mem_res = get_mem();
                 time_res = get_time();
                 bat_res = get_battery();
+                int time_left = dabar_get_lock_countdown();
+                lock_res = fmt_lock_countdown_str(time_left);
 
                 printf(",[");
+                printf("{\"name\":\"lock\",\"full_text\":\"%s\"},", lock_res);
                 if (bat_res && strlen(bat_res) > 0)
                 {
                         printf("{\"name\":\"bat\",\"full_text\":\"%s\"},", bat_res);
                 }
                 else
                 {
-                        printf("{\"name\":\"bat\",\"full_text\":\"unknown\"},");
+                        printf("{\"name\":\"bat\",\"full_text\":\"no battery\"},");
                 }
                 printf("{\"name\":\"mem\",\"full_text\":\"%s\"}", mem_res);
                 printf(",{\"name\":\"time\",\"full_text\":\"%s\"}", time_res);
@@ -259,8 +287,10 @@ int main(void)
                 time_res = NULL;
                 free(bat_res);
                 bat_res = NULL;
+                free(lock_res);
+                lock_res = NULL;
 
-                int err = poll(&in, 1, 5000);
+                err = poll(&in, 1, 5000);
                 if (err == -1)
                 {
                         running = 0;

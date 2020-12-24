@@ -24,7 +24,7 @@ static Display* root_display;
 static int active_screen;
 static Window active_root;
 
-static const int FIFTEEN_MINUTES = 15 * 60;
+static const int LOCKING_THRESHOLD = 5 * 60;
 static time_t last_active_time;
 
 void nicely_exit(int sig)
@@ -301,7 +301,7 @@ int get_lock_countdown()
         XEvent ev;
         int had_activity = 0;
         time_t now;
-        int countdown = FIFTEEN_MINUTES;
+        int countdown = LOCKING_THRESHOLD;
 
         while (XPending(root_display) > 0)
         {
@@ -316,15 +316,15 @@ int get_lock_countdown()
         }
 
         now = time(NULL);
-        countdown = FIFTEEN_MINUTES - ((int) (now - last_active_time));
+        countdown = LOCKING_THRESHOLD - ((int) (now - last_active_time));
 
         if (countdown < 0)
         {
                 countdown = 0;
         }
-        else if (countdown > FIFTEEN_MINUTES)
+        else if (countdown > LOCKING_THRESHOLD)
         {
-                countdown = FIFTEEN_MINUTES;
+                countdown = LOCKING_THRESHOLD;
         }
 
         return countdown;

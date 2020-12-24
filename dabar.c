@@ -426,7 +426,7 @@ int main(void)
                 lock_res = fmt_lock_countdown_str(time_left);
 
                 printf(",[");
-                printf("{\"name\":\"lock\",\"full_text\":\"%s\"}", lock_res);
+                printf("{\"name\":\"lock\",\"full_text\":\"%s\"},", lock_res);
                 if (bat_res && strlen(bat_res) > 0)
                 {
                         printf("{\"name\":\"bat\",\"full_text\":\"%s\"},", bat_res);

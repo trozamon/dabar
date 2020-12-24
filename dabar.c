@@ -12,6 +12,8 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
 
+extern char** environ;
+
 static char* empty = "";
 static volatile int running = 1;
 static volatile int screen_locked = 0;
@@ -294,15 +296,12 @@ int event_select_xi(void)
         return 0;
 }
 
-char* get_lock_countdown()
+int get_lock_countdown()
 {
         XEvent ev;
         int had_activity = 0;
-        char* res = NULL;
         time_t now;
         int countdown = FIFTEEN_MINUTES;
-        int minutes;
-        int seconds;
 
         while (XPending(root_display) > 0)
         {
@@ -328,8 +327,17 @@ char* get_lock_countdown()
                 countdown = FIFTEEN_MINUTES;
         }
 
-        minutes = countdown / 60;
-        seconds = countdown % 60;
+        return countdown;
+}
+
+char* fmt_lock_countdown_str(int counter)
+{
+        char* res = NULL;
+        int minutes;
+        int seconds;
+
+        minutes = counter / 60;
+        seconds = counter % 60;
 
         res = calloc(6, sizeof(char));
         snprintf(res, 6, "%02d:%02d", minutes, seconds);
@@ -338,8 +346,39 @@ char* get_lock_countdown()
 }
 
 // TODO: add ip addr
-// TODO: add i3lock calling
-// TODO: add suorafx setting - solid blue when active, breathing when locked
+// TODO: add X lock notification so that keepassxc locks
+
+void run_i3lock()
+{
+        pid_t res = fork();
+        char* i3lock_args[] = { "/usr/bin/i3lock", "--color", "000000", NULL };
+
+        if (res == 0)
+        {
+                execve("/usr/bin/i3lock", i3lock_args, environ);
+                exit(0);
+        }
+}
+
+void lockdown()
+{
+        if (screen_locked)
+        {
+                return;
+        }
+
+        run_i3lock();
+        // TODO: add suorafx setting - breathing when locked
+
+        screen_locked = 1;
+}
+
+void unlockdown()
+{
+        screen_locked = 0;
+
+        // TODO: add suorafx setting - solid blue when active
+}
 
 int main(void)
 {
@@ -383,7 +422,8 @@ int main(void)
                 mem_res = get_mem();
                 time_res = get_time();
                 bat_res = get_battery();
-                lock_res = get_lock_countdown();
+                int time_left = get_lock_countdown();
+                lock_res = fmt_lock_countdown_str(time_left);
 
                 printf(",[");
                 printf("{\"name\":\"lock\",\"full_text\":\"%s\"}", lock_res);
@@ -408,6 +448,11 @@ int main(void)
                 bat_res = NULL;
                 free(lock_res);
                 lock_res = NULL;
+
+                if (time_left == 0)
+                {
+                        lockdown();
+                }
 
                 int err = poll(&in, 1, 5000);
                 if (err == -1)

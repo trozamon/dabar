@@ -345,6 +345,70 @@ char* fmt_lock_countdown_str(int counter)
         return res;
 }
 
+int check_proc_exists(const char* proc_name)
+{
+        int exists = 0;
+        struct dirent* ent;
+        char* fname;
+        int fd;
+        DIR* proc;
+
+        proc = opendir("/proc");
+
+        if (!proc)
+        {
+                return exists;
+        }
+
+        fname = calloc(1024, sizeof(char));
+        ent = readdir(proc);
+        while (!exists && ent)
+        {
+                memset(fname, 0, 1024);
+                int res = snprintf(fname, 1024,
+                                "/proc/%s/cmdline", ent->d_name);
+                if (res <= 0)
+                {
+                        ent = readdir(proc);
+                        continue;
+                }
+
+                fd = open(fname, O_RDONLY);
+                if (fd < 0)
+                {
+                        ent = readdir(proc);
+                        continue;
+                }
+
+                memset(fname, 0, 1024);
+                res = read(fd, fname, 1024);
+                if (res < 0)
+                {
+                        close(fd);
+                        fd = -1;
+                        ent = readdir(proc);
+                        continue;
+                }
+
+                if (strstr(fname, proc_name))
+                {
+                        exists = 1;
+                }
+
+                ent = readdir(proc);
+        }
+
+        if (fd > 0)
+        {
+                close(fd);
+        }
+
+        closedir(proc);
+        free(fname);
+
+        return exists;
+}
+
 // TODO: add ip addr
 // TODO: add X lock notification so that keepassxc locks
 
@@ -355,7 +419,13 @@ void run_i3lock()
 
         if (res == 0)
         {
-                execve("/usr/bin/i3lock", i3lock_args, environ);
+                int exists = check_proc_exists("i3lock");
+
+                if (!exists)
+                {
+                        execve("/usr/bin/i3lock", i3lock_args, environ);
+                }
+
                 exit(0);
         }
 }

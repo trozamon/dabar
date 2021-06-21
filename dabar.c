@@ -11,6 +11,7 @@
 #include <unistd.h>
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
+#include "dabar-common.h"
 
 extern char** environ;
 
@@ -18,14 +19,6 @@ static char* empty = "";
 static volatile int running = 1;
 static volatile int screen_locked = 0;
 static int mem_fd = 0;
-
-static int xi_ext_opcode = -1;
-static Display* root_display;
-static int active_screen;
-static Window active_root;
-
-static const int LOCKING_THRESHOLD = 5 * 60;
-static time_t last_active_time;
 
 void nicely_exit(int sig)
 {
@@ -231,105 +224,6 @@ char* get_battery(void)
         return res;
 }
 
-int open_display(void)
-{
-        root_display = XOpenDisplay(NULL);
-
-        if (!root_display)
-        {
-                fprintf(stderr, "Failed to open display.\n");
-                return 1;
-        }
-
-        active_screen = DefaultScreen(root_display);
-        active_root = RootWindow(root_display, active_screen);
-
-        return 0;
-}
-
-int xinput_extensions_init(void)
-{
-        int event;
-        int error;
-
-        int res = XQueryExtension(root_display, "XInputExtension",
-                        &xi_ext_opcode, &event, &error);
-        if (!res)
-        {
-                return 2;
-        }
-
-        int maj = 2;
-        int min = 2;
-
-        res = XIQueryVersion(root_display, &maj, &min);
-        if (res == BadRequest)
-        {
-                return 3;
-        }
-        else if (res != Success)
-        {
-                return 4;
-        }
-
-        return 0;
-}
-
-int event_select_xi(void)
-{
-        XIEventMask masks[1];
-        unsigned char mask[(XI_LASTEVENT + 7)/8];
-
-        memset(mask, 0, sizeof(mask));
-        XISetMask(mask, XI_RawMotion);
-        XISetMask(mask, XI_RawButtonPress);
-        XISetMask(mask, XI_RawTouchUpdate);
-        XISetMask(mask, XI_RawKeyPress);
-
-        masks[0].deviceid = XIAllMasterDevices;
-        masks[0].mask_len = sizeof(mask);
-        masks[0].mask = mask;
-
-        XISelectEvents(root_display, active_root, masks, 1);
-        XFlush(root_display);
-
-        return 0;
-}
-
-int get_lock_countdown()
-{
-        XEvent ev;
-        int had_activity = 0;
-        time_t now;
-        int countdown = LOCKING_THRESHOLD;
-
-        while (XPending(root_display) > 0)
-        {
-                had_activity = 1;
-                XNextEvent(root_display, &ev);
-                XFreeEventData(root_display, &ev.xcookie);
-        }
-
-        if (had_activity)
-        {
-                last_active_time = time(NULL);
-        }
-
-        now = time(NULL);
-        countdown = LOCKING_THRESHOLD - ((int) (now - last_active_time));
-
-        if (countdown < 0)
-        {
-                countdown = 0;
-        }
-        else if (countdown > LOCKING_THRESHOLD)
-        {
-                countdown = LOCKING_THRESHOLD;
-        }
-
-        return countdown;
-}
-
 char* fmt_lock_countdown_str(int counter)
 {
         char* res = NULL;
@@ -345,110 +239,7 @@ char* fmt_lock_countdown_str(int counter)
         return res;
 }
 
-int check_proc_exists(const char* proc_name)
-{
-        int exists = 0;
-        struct dirent* ent;
-        char* fname;
-        int fd;
-        DIR* proc;
-
-        proc = opendir("/proc");
-
-        if (!proc)
-        {
-                return exists;
-        }
-
-        fname = calloc(1024, sizeof(char));
-        ent = readdir(proc);
-        while (!exists && ent)
-        {
-                memset(fname, 0, 1024);
-                int res = snprintf(fname, 1024,
-                                "/proc/%s/cmdline", ent->d_name);
-                if (res <= 0)
-                {
-                        ent = readdir(proc);
-                        continue;
-                }
-
-                fd = open(fname, O_RDONLY);
-                if (fd < 0)
-                {
-                        ent = readdir(proc);
-                        continue;
-                }
-
-                memset(fname, 0, 1024);
-                res = read(fd, fname, 1024);
-                if (res < 0)
-                {
-                        close(fd);
-                        fd = -1;
-                        ent = readdir(proc);
-                        continue;
-                }
-
-                if (strstr(fname, proc_name))
-                {
-                        exists = 1;
-                }
-
-                ent = readdir(proc);
-        }
-
-        if (fd > 0)
-        {
-                close(fd);
-        }
-
-        closedir(proc);
-        free(fname);
-
-        return exists;
-}
-
 // TODO: add ip addr
-// TODO: add X lock notification so that keepassxc locks
-
-void run_i3lock()
-{
-        pid_t res = fork();
-        char* i3lock_args[] = { "/usr/bin/i3lock", "--color", "000000", NULL };
-
-        if (res == 0)
-        {
-                int exists = check_proc_exists("i3lock");
-
-                if (!exists)
-                {
-                        execve("/usr/bin/i3lock", i3lock_args, environ);
-                }
-
-                exit(0);
-        }
-}
-
-void lockdown()
-{
-        if (screen_locked)
-        {
-                return;
-        }
-
-        run_i3lock();
-        // TODO: add suorafx setting - breathing when locked
-
-        screen_locked = 1;
-}
-
-void unlockdown()
-{
-        screen_locked = 0;
-
-        // TODO: add suorafx setting - solid blue when active
-}
 
 int main(void)
 {
@@ -457,28 +248,9 @@ int main(void)
         char* time_res;
         char* bat_res;
         char* lock_res;
-        int err;
+        int err = 0;
 
         signal(SIGINT, nicely_exit);
-
-        err = open_display();
-        if (err)
-        {
-                fprintf(stderr, "Failed to initialize X session: %d.\n", err);
-                return err;
-        }
-
-        err = xinput_extensions_init();
-        if (err)
-        {
-                fprintf(stderr, "Failed to initialize X extensions: %d.\n",
-                                err);
-                return err;
-        }
-
-        event_select_xi();
-
-        last_active_time = time(NULL);
 
         in.fd = STDIN_FILENO;
         in.events = POLLIN;
@@ -492,7 +264,7 @@ int main(void)
                 mem_res = get_mem();
                 time_res = get_time();
                 bat_res = get_battery();
-                int time_left = get_lock_countdown();
+                int time_left = dabar_get_lock_countdown();
                 lock_res = fmt_lock_countdown_str(time_left);
 
                 printf(",[");
@@ -519,12 +291,7 @@ int main(void)
                 free(lock_res);
                 lock_res = NULL;
 
-                if (time_left == 0)
-                {
-                        lockdown();
-                }
-
-                int err = poll(&in, 1, 5000);
+                err = poll(&in, 1, 5000);
                 if (err == -1)
                 {
                         running = 0;

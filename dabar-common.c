@@ -106,6 +106,12 @@ int dabar_check_proc_exists(const char* proc_name)
                         exists = 1;
                 }
 
+                if (fd >= 0)
+                {
+                        close(fd);
+                        fd = -1;
+                }
+
                 ent = readdir(proc);
         }
 

@@ -1,7 +1,9 @@
 #include <poll.h>
 #include <signal.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #include "dabar-common.h"
@@ -9,6 +11,7 @@
 extern char** environ;
 static volatile int screen_locked = 0;
 static volatile int running = 1;
+static volatile pid_t child_proc = 0;
 
 /* TODO: add X lock notification so that keepassxc locks */
 /* TODO: add a socket to communicate with the other process */
@@ -16,20 +19,23 @@ static volatile int running = 1;
 
 void run_i3lock()
 {
-        pid_t res = fork();
+        pid_t res;
         char* i3lock_args[] = { "/usr/bin/i3lock", "--color", "000000", NULL };
+        int exists = dabar_check_proc_exists("i3lock");
+
+        if (exists)
+        {
+                return;
+        }
+
+        res = fork();
 
         if (res == 0)
         {
-                int exists = dabar_check_proc_exists("i3lock");
-
-                if (!exists)
-                {
-                        execve("/usr/bin/i3lock", i3lock_args, environ);
-                }
-
-                exit(0);
+                execve("/usr/bin/i3lock", i3lock_args, environ);
         }
+
+        child_proc = res;
 }
 
 void lockdown()
@@ -79,6 +85,16 @@ int main(void)
                 else if (screen_locked)
                 {
                         unlockdown();
+                }
+
+                if (child_proc > 0)
+                {
+                        waitpid(child_proc, &err, WNOHANG);
+
+                        if (WIFEXITED(err) || WIFSIGNALED(err))
+                        {
+                                child_proc = 0;
+                        }
                 }
 
                 err = poll(&in, 1, 5000);

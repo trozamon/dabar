@@ -5,4 +5,10 @@ project(dabar
 
 add_compile_options(-Wall -Wextra)
 
-add_executable(dabar dabar.c)
+add_executable(dabar dabar.c dabar-common.c)
+target_link_libraries(dabar X11 Xi)
+
+add_executable(dabar-autolock dabar-autolock.c dabar-common.c)
+target_link_libraries(dabar-autolock X11 Xi)
+
+install(TARGETS dabar dabar-autolock)

@@ -104,5 +104,7 @@ int main(void)
                 }
         }
 
+        dabar_common_x_close();
+
         return 0;
 }

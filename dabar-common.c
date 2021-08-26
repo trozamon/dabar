@@ -64,6 +64,11 @@ int dabar_check_proc_exists(const char* proc_name)
         int fd;
         DIR* proc;
 
+        if (!proc_name)
+        {
+                return exists;
+        }
+
         proc = opendir("/proc");
 
         if (!proc)
@@ -213,6 +218,17 @@ int dabar_common_x_init()
         }
 
         event_select_xi();
+
+        return 0;
+}
+
+int dabar_common_x_close()
+{
+        if (root_display)
+        {
+                XCloseDisplay(root_display);
+                root_display = NULL;
+        }
 
         return 0;
 }

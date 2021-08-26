@@ -7,6 +7,11 @@
 int dabar_common_x_init(void);
 
 /**
+ * De-initializes dabar common.
+ */
+int dabar_common_x_close(void);
+
+/**
  * Get the remaining time before locking.
  */
 int dabar_get_lock_countdown(void);

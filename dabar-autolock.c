@@ -78,6 +78,8 @@ int main(void)
         {
                 int time_left = dabar_get_lock_countdown();
 
+                fprintf(stderr, "%d seconds left in countdown\n", time_left);
+
                 if (!screen_locked && time_left == 0)
                 {
                         lockdown();

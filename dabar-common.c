@@ -32,6 +32,9 @@ int dabar_get_lock_countdown()
         while (XPending(root_display) > 0)
         {
                 had_activity = 1;
+
+                fprintf(stderr, "Pending activity detected\n");
+
                 XNextEvent(root_display, &ev);
                 XFreeEventData(root_display, &ev.xcookie);
         }
@@ -83,6 +86,9 @@ int dabar_check_proc_exists(const char* proc_name)
                 memset(fname, 0, 1024);
                 int res = snprintf(fname, 1024,
                                 "/proc/%s/cmdline", ent->d_name);
+
+                fprintf(stderr, "Checking %s\n", fname);
+
                 if (res <= 0)
                 {
                         ent = readdir(proc);

@@ -71,7 +71,7 @@ int main(void)
         signal(SIGINT, nicely_exit);
         dabar_common_x_init();
 
-        in.fd = STDIN_FILENO;
+        in.fd = -1;
         in.events = POLLIN;
 
         while (running)

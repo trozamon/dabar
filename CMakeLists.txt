@@ -11,4 +11,7 @@ target_link_libraries(dabar X11 Xi)
 add_executable(dabar-autolock dabar-autolock.c dabar-common.c)
 target_link_libraries(dabar-autolock X11 Xi)
 
-install(TARGETS dabar dabar-autolock)
+add_executable(dabar-cli dabar-cli.c dabar-common.c)
+target_link_libraries(dabar-cli X11 Xi)
+
+install(TARGETS dabar dabar-autolock dabar-cli)

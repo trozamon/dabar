@@ -21,4 +21,9 @@ int dabar_get_lock_countdown(void);
  */
 int dabar_check_proc_exists(const char* proc_name);
 
+/**
+ * Get the socket to use for communicating with autolock
+ */
+char* dabar_socket_name(void);
+
 #endif /* DABAR_COMMON_H */

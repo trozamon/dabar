@@ -14,6 +14,9 @@
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
 
+#define SOCKET_NAME ".dabar-autolock.sock"
+
+/* TODO: remove this */
 static const int LOCKING_THRESHOLD = 5 * 60;
 
 static int xi_ext_opcode;
@@ -32,8 +35,6 @@ int dabar_get_lock_countdown()
         while (XPending(root_display) > 0)
         {
                 had_activity = 1;
-
-                fprintf(stderr, "Pending activity detected\n");
 
                 XNextEvent(root_display, &ev);
                 XFreeEventData(root_display, &ev.xcookie);
@@ -237,4 +238,20 @@ int dabar_common_x_close()
         }
 
         return 0;
+}
+
+char* dabar_socket_name(void)
+{
+        char* tmp;
+        char* home_dir;
+        size_t len;
+
+        home_dir = getenv("HOME");
+        len = strlen(home_dir) + strlen(SOCKET_NAME) + 2;
+
+        tmp = calloc(len, sizeof(char));
+        memset(tmp, 0, len);
+        snprintf(tmp, len, "%s/%s", home_dir, SOCKET_NAME);
+
+        return tmp;
 }

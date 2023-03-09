@@ -2,8 +2,6 @@
 
 #include <dirent.h>
 #include <fcntl.h>
-#include <poll.h>
-#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,54 +9,8 @@
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-#include <X11/Xlib.h>
-#include <X11/extensions/XInput2.h>
 
 #define SOCKET_NAME ".dabar-autolock.sock"
-
-/* TODO: remove this */
-static const int LOCKING_THRESHOLD = 5 * 60;
-
-static int xi_ext_opcode;
-static Display* root_display;
-static int active_screen;
-static Window active_root;
-static time_t last_active_time;
-
-int dabar_get_lock_countdown()
-{
-        XEvent ev;
-        int had_activity = 0;
-        time_t now;
-        int countdown = LOCKING_THRESHOLD;
-
-        while (XPending(root_display) > 0)
-        {
-                had_activity = 1;
-
-                XNextEvent(root_display, &ev);
-                XFreeEventData(root_display, &ev.xcookie);
-        }
-
-        if (had_activity)
-        {
-                last_active_time = time(NULL);
-        }
-
-        now = time(NULL);
-        countdown = LOCKING_THRESHOLD - ((int) (now - last_active_time));
-
-        if (countdown < 0)
-        {
-                countdown = 0;
-        }
-        else if (countdown > LOCKING_THRESHOLD)
-        {
-                countdown = LOCKING_THRESHOLD;
-        }
-
-        return countdown;
-}
 
 int dabar_check_proc_exists(const char* proc_name)
 {
@@ -138,108 +90,6 @@ int dabar_check_proc_exists(const char* proc_name)
         return exists;
 }
 
-static int open_display(void)
-{
-        root_display = XOpenDisplay(NULL);
-
-        if (!root_display)
-        {
-                fprintf(stderr, "Failed to open display.\n");
-                return 1;
-        }
-
-        active_screen = DefaultScreen(root_display);
-        active_root = RootWindow(root_display, active_screen);
-
-        return 0;
-}
-
-static int xinput_extensions_init(void)
-{
-        int event;
-        int error;
-
-        int res = XQueryExtension(root_display, "XInputExtension",
-                        &xi_ext_opcode, &event, &error);
-        if (!res)
-        {
-                return 2;
-        }
-
-        int maj = 2;
-        int min = 2;
-
-        res = XIQueryVersion(root_display, &maj, &min);
-        if (res == BadRequest)
-        {
-                return 3;
-        }
-        else if (res != Success)
-        {
-                return 4;
-        }
-
-        return 0;
-}
-
-static int event_select_xi(void)
-{
-        XIEventMask masks[1];
-        unsigned char mask[(XI_LASTEVENT + 7)/8];
-
-        memset(mask, 0, sizeof(mask));
-        XISetMask(mask, XI_RawMotion);
-        XISetMask(mask, XI_RawButtonPress);
-        XISetMask(mask, XI_RawTouchUpdate);
-        XISetMask(mask, XI_RawKeyPress);
-
-        masks[0].deviceid = XIAllMasterDevices;
-        masks[0].mask_len = sizeof(mask);
-        masks[0].mask = mask;
-
-        XISelectEvents(root_display, active_root, masks, 1);
-        XFlush(root_display);
-
-        return 0;
-}
-
-int dabar_common_x_init()
-{
-        last_active_time = time(NULL);
-        xi_ext_opcode = -1;
-        int err = 0;
-
-        err = open_display();
-        if (err)
-        {
-                fprintf(stderr, "Failed to initialize X session: %d.\n", err);
-                return err;
-        }
-
-        err = xinput_extensions_init();
-        if (err)
-        {
-                fprintf(stderr, "Failed to initialize X extensions: %d.\n",
-                                err);
-                return err;
-        }
-
-        event_select_xi();
-
-        return 0;
-}
-
-int dabar_common_x_close()
-{
-        if (root_display)
-        {
-                XCloseDisplay(root_display);
-                root_display = NULL;
-        }
-
-        return 0;
-}
-
 char* dabar_socket_name(void)
 {
         char* tmp;
@@ -254,4 +104,23 @@ char* dabar_socket_name(void)
         snprintf(tmp, len, "%s/%s", home_dir, SOCKET_NAME);
 
         return tmp;
+}
+
+char* dabar_format_time(time_t t)
+{
+        char* res = calloc(128, sizeof(char));
+        struct tm timeval;
+
+        struct tm* err = localtime_r(&t, &timeval);
+
+        if (NULL == err)
+        {
+                res[0] = 0;
+        }
+        else
+        {
+                strftime(res, 128, "%F %T %Z (%z)", &timeval);
+        }
+
+        return res;
 }

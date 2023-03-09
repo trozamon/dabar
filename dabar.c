@@ -90,6 +90,7 @@ char* get_mem(void)
         return res;
 }
 
+/* TODO: remove */
 char* get_time(void)
 {
         char* res = calloc(128, sizeof(char));
@@ -249,7 +250,6 @@ int main(void)
         int err = 0;
 
         signal(SIGINT, nicely_exit);
-        dabar_common_x_init();
 
         in.fd = STDIN_FILENO;
         in.events = POLLIN;
@@ -263,8 +263,8 @@ int main(void)
                 mem_res = get_mem();
                 time_res = get_time();
                 bat_res = get_battery();
-                int time_left = dabar_get_lock_countdown();
-                lock_res = fmt_lock_countdown_str(time_left);
+                int time_left = 300; /* TODO: dabar_get_lock_countdown(); */
+                lock_res = fmt_lock_countdown_str(time_left); // TODO replace
 
                 printf(",[");
                 printf("{\"name\":\"lock\",\"full_text\":\"%s\"},", lock_res);

@@ -8,7 +8,10 @@
 #include <sys/types.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
+#include <X11/Xlib.h>
+#include <X11/extensions/XInput2.h>
 
 #include "dabar-common.h"
 
@@ -17,20 +20,95 @@
 #define POLL_DELAY 5000
 #define BUF_SIZE 256
 
+/* TODO: allow setting longer timeout for autolock, or locking at a specific time */
+/* TODO: add a socket to communicate with the other process */
+/* TODO: add suorafx setting - red when locked, blue when active */
+
 struct pollset
 {
         struct pollfd* pfds;
         size_t npfds;
 };
 
+static int xi_ext_opcode;
+static Display* root_display;
+static int active_screen;
+static Window active_root;
+static time_t last_active_time;
+
 extern char** environ;
 static volatile int screen_locked = 0;
 static volatile int running = 1;
 static volatile pid_t child_proc = 0;
+static volatile time_t lock_time;
 
-/* TODO: allow setting longer timeout for autolock, or locking at a specific time */
-/* TODO: add a socket to communicate with the other process */
-/* TODO: add suorafx setting - red when locked, blue when active */
+int dabar_x_init(void);
+int dabar_x_close(void);
+
+int open_display(void)
+{
+        root_display = XOpenDisplay(NULL);
+
+        if (!root_display)
+        {
+                fprintf(stderr, "Failed to open display.\n");
+                return 1;
+        }
+
+        active_screen = DefaultScreen(root_display);
+        active_root = RootWindow(root_display, active_screen);
+
+        return 0;
+}
+
+int xinput_extensions_init(void)
+{
+        int event;
+        int error;
+
+        int res = XQueryExtension(root_display, "XInputExtension",
+                        &xi_ext_opcode, &event, &error);
+        if (!res)
+        {
+                return 2;
+        }
+
+        int maj = 2;
+        int min = 2;
+
+        res = XIQueryVersion(root_display, &maj, &min);
+        if (res == BadRequest)
+        {
+                return 3;
+        }
+        else if (res != Success)
+        {
+                return 4;
+        }
+
+        return 0;
+}
+
+int event_select_xi(void)
+{
+        XIEventMask masks[1];
+        unsigned char mask[(XI_LASTEVENT + 7)/8];
+
+        memset(mask, 0, sizeof(mask));
+        XISetMask(mask, XI_RawMotion);
+        XISetMask(mask, XI_RawButtonPress);
+        XISetMask(mask, XI_RawTouchUpdate);
+        XISetMask(mask, XI_RawKeyPress);
+
+        masks[0].deviceid = XIAllMasterDevices;
+        masks[0].mask_len = sizeof(mask);
+        masks[0].mask = mask;
+
+        XISelectEvents(root_display, active_root, masks, 1);
+        XFlush(root_display);
+
+        return 0;
+}
 
 void run_i3lock()
 {
@@ -180,7 +258,6 @@ void pollset_set_events(struct pollset* set)
 
 void pollset_add_sock(struct pollset* set, int socket)
 {
-        /* TODO: search for a negative fd and re-use it */
         int idx = -1;
 
         if (!set->pfds)
@@ -209,9 +286,86 @@ void pollset_add_sock(struct pollset* set, int socket)
         set->pfds[idx].events = POLLIN;
 }
 
+int handle_message(struct pollfd* pfds, size_t idx, char* buf)
+{
+        int err = 0;
+        char* tmp;
+        time_t new_lock_time;
+
+        switch (buf[0])
+        {
+                case DABAR_MSG_REQ_SET_LOCKTIME:
+                        memcpy(((void*) &new_lock_time), buf + 1, sizeof(time_t));
+
+                        if (new_lock_time > lock_time)
+                        {
+                                tmp = dabar_format_time(new_lock_time);
+                                fprintf(stderr, "Updating lock time to %s\n", tmp);
+                                lock_time = new_lock_time;
+                                free(tmp);
+                        }
+                        /* FALLTHROUGH */
+
+                case DABAR_MSG_REQ_LOCKTIME:
+                        memset(buf, 0, BUF_SIZE);
+                        buf[0] = DABAR_MSG_RESP_OK;
+                        memcpy(buf + 1, (void*) &lock_time, sizeof(time_t));
+
+                        err = write(pfds[idx].fd, buf, sizeof(time_t) + 1);
+                        if (err == -1)
+                        {
+                                perror("write");
+                                return -1;
+                        }
+                        break;
+
+                default:
+                        fprintf(stderr, "Read unknown message type\n");
+                        return -2;
+        }
+
+        return 0;
+}
+
+int handle_read(struct pollfd* pfds, size_t idx)
+{
+        // TODO: allocate this outside somewhere (pollset?) and re-use
+        char* buf;
+        int err;
+
+        buf = malloc(BUF_SIZE);
+        memset(buf, 0, BUF_SIZE);
+
+        err = read(pfds[idx].fd, buf, BUF_SIZE);
+
+        if (err == -1)
+        {
+                perror("read");
+                return err;
+        }
+        else if (err == 0)
+        {
+                err = close(pfds[idx].fd);
+
+                pfds[idx].fd = ~pfds[idx].fd;
+
+                if (err == -1)
+                {
+                        perror("close");
+                        return err;
+                }
+        }
+        else if (err <= BUF_SIZE)
+        {
+                err = handle_message(pfds, idx, buf);
+        }
+
+        free(buf);
+        return err;
+}
+
 int handle_sockets(struct pollset* set, int listen_sock)
 {
-        char* buf;
         int err;
         struct pollfd* pfds = set->pfds;
 
@@ -228,33 +382,80 @@ int handle_sockets(struct pollset* set, int listen_sock)
                         else
                         {
                                 pollset_add_sock(set, err);
-                                fprintf(stderr, "Accepted\n");
                         }
                 }
                 else if (pfds[i].revents & POLLIN)
                 {
-                        buf = malloc(BUF_SIZE);
-                        memset(buf, 0, BUF_SIZE);
-                        err = read(pfds[i].fd, buf, 256);
-                        fprintf(stderr, "Read %d: %s\n", err, buf);
-                        free(buf);
-                        if (err == -1)
+                        err = handle_read(pfds, i);
+
+                        if (err)
                         {
-                                perror("read");
                                 return err;
-                        }
-                        else if (err == 0)
-                        {
-                                err = close(pfds[i].fd);
-                                pfds[i].fd = ~pfds[i].fd;
-                                if (err == -1)
-                                {
-                                        perror("close");
-                                        return err;
-                                }
                         }
                 }
         }
+
+        return 0;
+}
+
+void pollset_init(struct pollset* set)
+{
+        set->pfds = NULL;
+        set->npfds = 0;
+}
+
+void lock_time_refresh(void)
+{
+        XEvent ev;
+        int had_activity = 0;
+
+        while (XPending(root_display) > 0)
+        {
+                had_activity = 1;
+
+                XNextEvent(root_display, &ev);
+                XFreeEventData(root_display, &ev.xcookie);
+        }
+
+        if (had_activity)
+        {
+                lock_time = time(NULL) + DEFAULT_LOCK_TIME;
+        }
+}
+
+int dabar_x_close()
+{
+        if (root_display)
+        {
+                XCloseDisplay(root_display);
+                root_display = NULL;
+        }
+
+        return 0;
+}
+
+int dabar_x_init()
+{
+        last_active_time = time(NULL);
+        xi_ext_opcode = -1;
+        int err = 0;
+
+        err = open_display();
+        if (err)
+        {
+                fprintf(stderr, "Failed to initialize X session: %d.\n", err);
+                return err;
+        }
+
+        err = xinput_extensions_init();
+        if (err)
+        {
+                fprintf(stderr, "Failed to initialize X extensions: %d.\n",
+                                err);
+                return err;
+        }
+
+        event_select_xi();
 
         return 0;
 }
@@ -265,10 +466,11 @@ int main(void)
         int err = 0;
         int sock = 0;
 
-        set.pfds = NULL;
+        pollset_init(&set);
+        lock_time = time(NULL) + DEFAULT_LOCK_TIME;
 
         signal(SIGINT, nicely_exit);
-        dabar_common_x_init();
+        dabar_x_init();
         err = server_socket_init(&sock);
 
         if (err)
@@ -280,10 +482,11 @@ int main(void)
 
         while (running)
         {
-                // TODO fix
-                int time_left = dabar_get_lock_countdown();
+                time_t now = time(NULL);
+                int time_left;
 
-                /* fprintf(stderr, "%d seconds left in countdown\n", time_left); */
+                lock_time_refresh();
+                time_left = lock_time - now;
 
                 if (!screen_locked && time_left == 0)
                 {
@@ -316,7 +519,7 @@ int main(void)
                 }
         }
 
-        dabar_common_x_close();
+        dabar_x_close();
         server_sock_deinit(&sock);
 
         return 0;

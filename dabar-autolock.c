@@ -20,8 +20,6 @@
 #define POLL_DELAY 5000
 #define BUF_SIZE 256
 
-/* TODO: allow setting longer timeout for autolock, or locking at a specific time */
-/* TODO: add a socket to communicate with the other process */
 /* TODO: add suorafx setting - red when locked, blue when active */
 
 struct pollset
@@ -417,9 +415,10 @@ void lock_time_refresh(void)
                 XFreeEventData(root_display, &ev.xcookie);
         }
 
-        if (had_activity)
+        time_t new_lock_time = time(NULL) + DEFAULT_LOCK_TIME;
+        if (had_activity && new_lock_time > lock_time)
         {
-                lock_time = time(NULL) + DEFAULT_LOCK_TIME;
+                lock_time = new_lock_time;
         }
 }
 
@@ -483,16 +482,16 @@ int main(void)
         while (running)
         {
                 time_t now = time(NULL);
-                int time_left;
+                int needs_lock = 0;
 
                 lock_time_refresh();
-                time_left = lock_time - now;
+                needs_lock = now >= lock_time;
 
-                if (!screen_locked && time_left == 0)
+                if (!screen_locked && needs_lock)
                 {
                         lockdown();
                 }
-                else if (screen_locked)
+                else if (screen_locked && !needs_lock)
                 {
                         unlockdown();
                 }

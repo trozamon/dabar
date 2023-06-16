@@ -1,6 +1,9 @@
+#define _XOPEN_SOURCE
+
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -10,8 +13,6 @@
 #include <unistd.h>
 
 #include "dabar-common.h"
-
-#define char_to_int(x) ((int)(x - '0'))
 
 int socket_init(int* sock)
 {
@@ -109,16 +110,19 @@ int update_locktime(int sock, const char* cmd)
         t = time(NULL);
         localtime_r(&t, &t_raw);
 
-        if (strlen(cmd) != 4)
+        if (strlen(cmd) != 5)
         {
                 fprintf(stderr, "Could not parse time\n");
                 return -1;
         }
 
         res = strptime(cmd, "%H:%M", &t_raw);
+        if (res == NULL)
+        {
+                fprintf(stderr, "strptime: could not parse time\n");
+                return -1;
+        }
 
-        t_raw.tm_hour = char_to_int(cmd[0]) * 10 + char_to_int(cmd[1]);
-        t_raw.tm_min = char_to_int(cmd[2]) * 10 + char_to_int(cmd[3]);
         t_raw.tm_sec = 0;
         t = mktime(&t_raw);
         memcpy(tmp + 1, (void*) &t, sizeof(time_t));
@@ -144,7 +148,11 @@ int update_locktime(int sock, const char* cmd)
 
                 memcpy((void*) &t, tmp + 1, sizeof(time_t));
                 msg = dabar_format_time(t);
-                printf("%s\n", msg);
+                printf("Set to %s\n", msg);
+        }
+        else
+        {
+                printf("error, read %d bytes\n", err);
         }
 
         return 0;
@@ -165,12 +173,14 @@ int main(int argc, char** argv)
         {
                 print_locktime(sock);
         }
-        else if (strlen(argv[1]) == 4)
+        else if (strlen(argv[1]) == 5)
         {
                 update_locktime(sock, argv[1]);
         }
-
-        return 0;
+        else
+        {
+                printf("usage: dabar-cli [hh:mm]\n");
+        }
 
         err = close(sock);
         if (err == -1)
